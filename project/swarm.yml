@@ -1,0 +1,140 @@
+services:
+
+  broker-service:
+    image: axeles/broker-service:1.0.0
+    ports:
+      - "8080:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  listener-service:
+    image: axeles/listener-service:1.0.0
+    deploy:
+      mode: replicated
+      replicas: 1
+
+      
+  authentication-service:
+    image: axeles/authentication-service:1.0.0
+    ports:
+      - "8082:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
+
+  logger-service:
+    image: axeles/logger-service:1.0.0
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  mailer-service:
+    image: axeles/mailer-service:1.0.0
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      MAIL_DOMAIN: mailhog
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
+      MAIL_ENCRYPTION: none
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      FROM_NAME: "John Smith"
+      FROM_ADDRESS: john.smith@mailhog.local
+
+  rabbitmq:
+    image: 'rabbitmq:4.0.5-alpine'
+    container_name: rabbitmq_container
+    ports:
+      - 5672:5672
+    deploy:
+      mode: global
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+
+  mailhog:
+    image: 'mailhog/mailhog:latest'
+    ports:
+      - 1025:1025
+      - 8025:8025
+    deploy:
+      mode: global
+
+  mongo:
+    image: mongo
+    ports:
+      - "27017:27017"
+    deploy:
+      mode: global
+    environment:
+      MONGO_INITDB_DATABASE: logs
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo-data:/data/db
+      - mongo-configdb:/data/configdb
+
+  postgres:
+    image: 'postgres:latest'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: users
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    command: >
+      postgres -c max_connections=1000
+               -c shared_buffers=256MB
+               -c effective_cache_size=768MB
+               -c maintenance_work_mem=64MB
+               -c checkpoint_completion_target=0.7
+               -c wal_buffers=16MB
+               -c default_statistics_target=100
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d users" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+volumes:
+  pgdata:
+    name: go-micro-pgdata
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/postgres/go-micro
+  mongo-data:
+    name: mongo-data
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/mongo/db
+  mongo-configdb:
+    name: mongo-configdb
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/mongo/configdb
+  rabbitmq:
+    name: rabbitmq
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/rabbitmq
