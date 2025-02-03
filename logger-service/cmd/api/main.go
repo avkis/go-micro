@@ -74,6 +74,9 @@ func main() {
 		Models: data.New(client),
 	}
 
+	// start gRPC server
+	go app.gRPCListen()
+
 	// start RPC server
 	go app.rpcListen()
 
