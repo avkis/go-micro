@@ -1,0 +1,218 @@
+name: go-micro
+
+services:
+
+  broker-service:
+    build: 
+      context: ./../broker-service
+      dockerfile: ./../broker-service/Dockerfile
+    container_name: broker-service
+    restart: always
+    ports:
+      - "8080:8080"
+    deploy:
+      mode: replicated
+      replicas: 1
+    networks:
+      - network
+
+      
+  authentication-service:
+    build: 
+      context: ./../authentication-service
+      dockerfile: ./../authentication-service/Dockerfile
+    container_name: authentication-service
+    restart: always
+    ports:
+      - "8082:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
+    depends_on:
+      - postgres
+    networks:
+      - network
+  
+
+  logger-service:
+    build: 
+      context: ./../logger-service
+      dockerfile: ./../logger-service/Dockerfile
+    container_name: logger-service
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    networks:
+      - network
+  
+
+  mailer-service:
+    build: 
+      context: ./../mailer-service
+      dockerfile: ./../mailer-service/Dockerfile
+    container_name: mailer-service
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      MAIL_DOMAIN: mailhog
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
+      MAIL_ENCRYPTION: none
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      FROM_NAME: "John Smith"
+      FROM_ADDRESS: john.smith@mailhog.local
+    depends_on:
+      - mailhog
+    external_links:
+      - mailhog
+    networks:
+      - network
+  
+  listener-service:
+    build: 
+      context: ./../listener-service
+      dockerfile: ./../listener-service/Dockerfile
+    container_name: listener-service
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    networks:
+      - network
+
+
+  # postgres: start Postgres, and ensure that data is stored to a mounted volume
+  postgres:
+    image: 'postgres:latest'
+    container_name: postgres_container
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: users
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    command: >
+      postgres -c max_connections=1000
+               -c shared_buffers=256MB
+               -c effective_cache_size=768MB
+               -c maintenance_work_mem=64MB
+               -c checkpoint_completion_target=0.7
+               -c wal_buffers=16MB
+               -c default_statistics_target=100
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d users" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    networks:
+      - network
+
+
+  mongo:
+    image: mongo
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: logs
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo-data:/data/db
+      - mongo-configdb:/data/configdb
+    networks:
+      - network
+
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongo:27017/
+      ME_CONFIG_BASICAUTH: false
+    networks:
+      - network
+
+
+  mailhog:
+    image: 'mailhog/mailhog:latest'
+    container_name: mailhog_container
+    ports:
+      - 1025:1025
+      - 8025:8025
+    networks:
+      - network
+    restart: on-failure
+    environment:
+      MH_HOSTNAME: mailhog
+
+  rabbitmq:
+    image: 'rabbitmq:4.0.5-alpine'
+    container_name: rabbitmq_container
+    ports:
+      - 5672:5672
+    deploy:
+      mode: replicated
+      replicas: 1
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    restart: on-failure
+    networks:
+      - network
+
+
+networks:
+  network:
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: go-micro-pgdata
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/postgres/go-micro
+  mongo-data:
+    name: mongo-data
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/mongo/db
+  mongo-configdb:
+    name: mongo-configdb
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/mongo/configdb
+  rabbitmq:
+    name: rabbitmq
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: ${DATA_PATH_HOST}/rabbitmq
+  
